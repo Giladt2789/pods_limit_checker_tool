@@ -1,0 +1,55 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: pod-monitor
+  namespace: default
+spec:
+  schedule: "*/5 * * * *"  # Runs every 5 minutes
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: pod-monitor
+        spec:
+          serviceAccountName: pod-monitor-sa
+          containers:
+          - name: pod-monitor
+            image: k8s-pod-limits-checker:latest
+            imagePullPolicy: IfNotPresent
+            resources:
+              requests:
+                memory: "64Mi"
+                cpu: "100m"
+              limits:
+                memory: "128Mi"
+                cpu: "200m"
+            args:
+            - "--log-level"
+            - "$(LOG_LEVEL)"
+            - "--output"
+            - "$(OUTPUT_TYPE)"
+            env:
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: pod-monitor-config
+                  key: log-level
+            - name: OUTPUT_TYPE
+              valueFrom:
+                configMapKeyRef:
+                  name: pod-monitor-config
+                  key: output-type
+            - name: ANNOTATE
+              valueFrom:
+                configMapKeyRef:
+                  name: pod-monitor-config
+                  key: annotate
+            volumeMounts:
+            - name: config
+              mountPath: /etc/config
+          volumes:
+          - name: config
+            configMap:
+              name: pod-monitor-config
+          restartPolicy: OnFailure

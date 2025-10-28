@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pod-monitor-config
+  namespace: default
+data:
+  log-level: "INFO"
+  output-type: "json"
+  annotate: "false"  # Set to "true" to enable automatic pod annotations
