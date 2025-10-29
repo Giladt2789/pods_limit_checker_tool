@@ -21,8 +21,32 @@ A simple tool to identify Kubernetes containers across all namespaces that are m
 ## Prerequisites
 
 - Docker installed on your system
-- Access to a Kubernetes cluster (kubeconfig properly configured)
+- Access to a Kubernetes cluster (kubeconfig properly configured - wwas fully tested on minikube)
 - For local testing: Minikube (optional)
+
+
+## Possible approaches to address the problem: Continuous Monitoring Approaches
+
+1. **Cronjob (Periodic Polling)**:
+Runs your script at fixed intervals (e.g., every 5 minutes)
+Simple to implement and debug
+Trade-off: Has a detection gap between runs—a pod could exist for several minutes before being flagged
+Good for: Non-critical monitoring where delayed detection is acceptable
+
+2. **Controller/Operator (Event-Driven)**
+A long-running Pod or Deployment that watches the Kubernetes API in real-time
+Uses client libraries with watch mechanisms (like client-go, Python client, etc.)
+Detects new pods immediately via API events
+Good for: Immediate detection and enforcement
+
+3. **Webhook (Admission Controller)**
+Intercepts pod creation requests before they're created
+Can prevent pods without limits from being admitted to the cluster
+Most proactive approach—blocking instead of just monitoring
+Good for: Enforcement rather than just detection
+
+### Important note about solution choosing:
+I've decided to go with a cronjob format, rather than an operator or a webhook due to simplicity, fast delivery and the proper understanding that there are better and more suitable solutions out there (paid and free).  
 
 ## Quick Start Guide
 
