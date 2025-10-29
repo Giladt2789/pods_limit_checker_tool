@@ -52,7 +52,7 @@ I've decided to go with a cronjob format, rather than an operator or a webhook d
 
 ### One-Command Deployment (Recommended)
 
-The easiest way to get started is using the automated wrapper scripts:
+The easiest way to get started is using the automated wrapper scripts (given that there's a k8s cluster, minikube in my testing case):
 
 **For Kubernetes Deployment (Production):**
 
