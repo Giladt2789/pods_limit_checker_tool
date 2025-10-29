@@ -2,6 +2,22 @@
 
 A simple tool to identify Kubernetes containers across all namespaces that are missing CPU and/or memory resource limits.
 
+## Table of Contents
+
+- [Prerequisites](#prerequisites)
+- [Quick Start Guide](#quick-start-guide)
+- [Getting Started](#getting-started)
+- [Kubernetes Deployment](#kubernetes-deployment)
+- [Using a Container Registry](#using-a-container-registry)
+- [Wrapper Scripts Reference](#wrapper-scripts-reference)
+- [Testing and Verification](#testing-and-verification)
+- [Pod Annotation Feature](#pod-annotation-feature)
+- [Local Docker Usage Examples](#local-docker-usage-examples)
+- [Output Format](#output-format)
+- [Running as a Cron Job](#running-as-a-cron-job)
+- [Logs](#logs)
+- [Troubleshooting](#troubleshooting)
+
 ## Prerequisites
 
 - Docker installed on your system
@@ -14,10 +30,18 @@ A simple tool to identify Kubernetes containers across all namespaces that are m
 
 The easiest way to get started is using the automated wrapper scripts:
 
-**For Kubernetes Deployment (Minikube/kind/Docker Desktop):**
+**For Kubernetes Deployment (Production):**
 
 ```bash
+# Deploy only core resources (recommended for production)
 ./deploy.sh
+```
+
+**For Testing with Test Workloads:**
+
+```bash
+# Deploy core resources + test workloads for verification
+./deploy.sh --with-test-workloads
 ```
 
 **For Local Testing (One-time execution):**
@@ -38,7 +62,7 @@ These scripts handle everything automatically including:
 - ✓ Building Docker images
 - ✓ Detecting cluster type (Minikube/kind/Docker Desktop)
 - ✓ Loading images into the cluster
-- ✓ Deploying Kubernetes manifests
+- ✓ Deploying Kubernetes manifests (core + optional test workloads)
 - ✓ Verification and error handling
 
 ### Manual Quick Start
@@ -260,7 +284,15 @@ To enable automatic annotation of pods with missing limits, update the ConfigMap
 kubectl edit configmap pod-monitor-config
 ```
 
-Change `annotate: "false"` to `annotate: "true"`, then wait for the next scheduled run.
+Change `annotate: "false"` to `annotate: "true"`, save and exit. The change will take effect on the next scheduled CronJob run (no pod restart needed).
+
+To trigger an immediate test:
+
+```bash
+kubectl create job --from=cronjob/pod-monitor test-annotate
+```
+
+See the [Pod Annotation Feature](#pod-annotation-feature) section for full details.
 
 ## Using a Container Registry
 
@@ -315,7 +347,22 @@ Three automated scripts are provided for easy deployment and management:
 Handles the complete deployment process automatically:
 
 ```bash
+./deploy.sh [OPTIONS]
+```
+
+**Options:**
+
+- `--with-test-workloads` - Deploy test workloads for testing the pod limits checker
+- `--help`, `-h` - Show help message
+
+**Examples:**
+
+```bash
+# Deploy only core resources (recommended for production)
 ./deploy.sh
+
+# Deploy with test workloads for testing and verification
+./deploy.sh --with-test-workloads
 ```
 
 **What it does:**
@@ -324,9 +371,10 @@ Handles the complete deployment process automatically:
 2. Detects cluster type (Minikube, kind, Docker Desktop, or remote)
 3. Builds the Docker image
 4. Loads the image into your cluster (if needed)
-5. Deploys all Kubernetes manifests
-6. Verifies the deployment
-7. Shows useful commands for monitoring
+5. Deploys core Kubernetes manifests
+6. Optionally deploys test workloads (with `--with-test-workloads`)
+7. Verifies the deployment
+8. Shows useful commands for monitoring
 
 **Supported cluster types:**
 
@@ -407,6 +455,175 @@ Removes all deployed Kubernetes resources:
 ```bash
 docker rmi k8s-pod-limits-checker:latest
 ```
+
+## Testing and Verification
+
+### Test Workloads
+
+Four test deployment manifests are included to help verify the pod limits checker works correctly:
+
+1. **[test-deployment-cpu-only.yaml](manifests/test-deployment-cpu-only.yaml)** - Pod with only CPU limit (missing memory limit)
+   - Namespace: `no-memory-limit`
+   - Should be flagged with missing memory limit
+
+2. **[test-deployment-memory-only.yaml](manifests/test-deployment-memory-only.yaml)** - Pod with only memory limit (missing CPU limit)
+   - Namespace: `no-cpu-limit`
+   - Should be flagged with missing CPU limit
+
+3. **[test-deployment-no-limits.yaml](manifests/test-deployment-no-limits.yaml)** - Pod with no resource limits
+   - Namespace: `no-limits-global`
+   - Should be flagged with missing both CPU and memory limits
+
+4. **[test-deployment-all-limits.yaml](manifests/test-deployment-all-limits.yaml)** - Pod with all limits (compliant)
+   - Namespace: `all-limits`
+   - Should NOT be flagged (has both CPU and memory limits)
+
+### Deploying Test Workloads
+
+**Using the automated script:**
+
+```bash
+./deploy.sh --with-test-workloads
+```
+
+**Manual deployment:**
+
+```bash
+kubectl apply -f manifests/test-deployment-cpu-only.yaml
+kubectl apply -f manifests/test-deployment-memory-only.yaml
+kubectl apply -f manifests/test-deployment-no-limits.yaml
+kubectl apply -f manifests/test-deployment-all-limits.yaml
+```
+
+### Verifying Results
+
+**1. Trigger a manual CronJob run:**
+
+```bash
+kubectl create job --from=cronjob/pod-monitor test-run-1
+```
+
+**2. Check the logs:**
+
+```bash
+kubectl logs -l app=pod-monitor --tail=100
+```
+
+**Expected output should include:**
+
+```
+NAMESPACE          POD_NAME                     CONTAINER_NAME    MISSING_CPU    MISSING_MEMORY
+no-cpu-limit       test-memory-only-xxx         nginx             YES            NO
+no-memory-limit    test-cpu-only-xxx            nginx             NO             YES
+no-limits-global   test-no-limits-xxx           nginx             YES            YES
+```
+
+The `all-limits` namespace should NOT appear (since it's compliant).
+
+**3. Check pod status in test namespaces:**
+
+```bash
+kubectl get pods -n no-cpu-limit
+kubectl get pods -n no-memory-limit
+kubectl get pods -n no-limits-global
+kubectl get pods -n all-limits
+```
+
+**4. If annotations are enabled, check for warning annotations:**
+
+```bash
+# Check specific pod
+kubectl get pod <pod-name> -n <namespace> -o jsonpath='{.metadata.annotations}'
+
+# Check all pods in a namespace
+kubectl get pods -n no-cpu-limit -o custom-columns=NAME:.metadata.name,WARNINGS:.metadata.annotations.warning
+```
+
+### Cleaning Up Test Workloads
+
+**Using the automated script:**
+
+```bash
+./cleanup.sh
+```
+
+This automatically removes test workloads and their namespaces if they exist.
+
+**Manual cleanup:**
+
+```bash
+kubectl delete namespace no-cpu-limit
+kubectl delete namespace no-memory-limit
+kubectl delete namespace no-limits-global
+kubectl delete namespace all-limits
+```
+
+## Pod Annotation Feature
+
+The tool can automatically annotate pods that are missing resource limits. This is an **opt-in/opt-out** feature controlled via ConfigMap.
+
+### Enabling Annotations
+
+Edit the ConfigMap to enable annotations:
+
+```bash
+kubectl edit configmap pod-monitor-config
+```
+
+Change `annotate: "false"` to `annotate: "true"`:
+
+```yaml
+data:
+  log-level: "INFO"
+  output-type: "json"
+  annotate: "true"    # Changed from "false" to "true"
+```
+
+Save and exit. The CronJob will use the new setting on its next scheduled run.
+
+### Disabling Annotations
+
+To disable annotations, edit the ConfigMap and change `annotate: "true"` to `annotate: "false"`:
+
+```bash
+kubectl edit configmap pod-monitor-config
+# Change annotate to "false"
+```
+
+### Annotation Types
+
+When enabled, pods are annotated based on what limits are missing:
+
+- `warning: no-cpu-limit` - CPU limit is missing
+- `warning: no-memory-limit` - Memory limit is missing
+- `warning: no-limits` - Both CPU and memory limits are missing
+
+### Viewing Pod Annotations
+
+**View annotations for a specific pod:**
+
+```bash
+kubectl get pod <pod-name> -n <namespace> -o yaml | grep -A 5 annotations:
+```
+
+**View annotations in table format:**
+
+```bash
+kubectl get pods --all-namespaces -o custom-columns=NAMESPACE:.metadata.namespace,NAME:.metadata.name,WARNING:.metadata.annotations.warning
+```
+
+**Check if a pod has warning annotations:**
+
+```bash
+kubectl get pod <pod-name> -n <namespace> -o jsonpath='{.metadata.annotations.warning}'
+```
+
+### Important Notes
+
+- The annotation feature requires the ClusterRole to have `patch` permissions on pods (already configured in [clusterrole.yaml](manifests/clusterrole.yaml))
+- Annotations are applied during each CronJob run when the feature is enabled
+- Changing the ConfigMap setting takes effect on the next CronJob execution (no pod restart needed)
+- This is a **ConfigMap-driven** feature - you should NOT edit the [cronjob.yaml](manifests/cronjob.yaml) to enable/disable annotations
 
 ## Local Docker Usage Examples
 
@@ -584,3 +801,97 @@ Ensure the ClusterRole includes these verbs:
 Check the `imagePullPolicy` in [manifests/cronjob.yaml](manifests/cronjob.yaml#L19):
 - For local images: Use `imagePullPolicy: IfNotPresent` or `Never`
 - For registry images: Use `imagePullPolicy: Always`
+
+### Annotations not working
+
+If you've enabled annotations in the ConfigMap but pods are not being annotated:
+
+**1. Verify the ConfigMap setting:**
+
+```bash
+kubectl get configmap pod-monitor-config -o yaml
+```
+
+Ensure `annotate: "true"` is set in the data section.
+
+**2. Check ClusterRole has patch permissions:**
+
+```bash
+kubectl get clusterrole pod-monitor-role -o yaml
+```
+
+Ensure the role includes `patch` verb:
+
+```yaml
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch", "patch"]
+```
+
+**3. Trigger a new CronJob run:**
+
+ConfigMap changes take effect on the next scheduled run. To test immediately:
+
+```bash
+kubectl create job --from=cronjob/pod-monitor test-annotate-1
+```
+
+**4. Check the logs for annotation messages:**
+
+```bash
+kubectl logs -l app=pod-monitor --tail=50 | grep -i annotat
+```
+
+You should see messages like:
+- `Annotated pod <pod-name> in namespace <namespace> with: no-cpu-limit`
+- `Annotated pod <pod-name> in namespace <namespace> with: no-memory-limit`
+- `Annotated pod <pod-name> in namespace <namespace> with: no-limits`
+
+**5. Verify annotations were applied:**
+
+```bash
+kubectl get pods --all-namespaces -o custom-columns=NAMESPACE:.metadata.namespace,NAME:.metadata.name,WARNING:.metadata.annotations.warning
+```
+
+**6. Check ServiceAccount permissions:**
+
+```bash
+kubectl auth can-i patch pods --as=system:serviceaccount:default:pod-monitor-sa --all-namespaces
+```
+
+Should return `yes`.
+
+### Test workloads not being flagged
+
+If test workloads are deployed but not appearing in the checker output:
+
+**1. Verify pods are running:**
+
+```bash
+kubectl get pods --all-namespaces -l test=pod-limits-checker
+```
+
+**2. Check if the CronJob has run:**
+
+```bash
+kubectl get jobs -l app=pod-monitor
+```
+
+If no jobs exist or the latest job is old, trigger a manual run:
+
+```bash
+kubectl create job --from=cronjob/pod-monitor test-run-2
+```
+
+**3. Check the logs:**
+
+```bash
+kubectl logs -l app=pod-monitor --tail=100
+```
+
+**4. Verify the test deployments have the expected resource limits:**
+
+```bash
+kubectl get pod <pod-name> -n <namespace> -o jsonpath='{.spec.containers[0].resources.limits}'
+```

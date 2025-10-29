@@ -42,11 +42,71 @@ cleanup_k8s() {
         exit 1
     fi
 
-    if kubectl delete -f manifests/ &> /dev/null; then
-        print_success "Kubernetes resources removed successfully"
+    # Remove core resources
+    print_info "Removing core resources..."
+    local core_manifests=(
+        "manifests/cronjob.yaml"
+        "manifests/configmap.yaml"
+        "manifests/clusterrolebinding.yaml"
+        "manifests/clusterrole.yaml"
+        "manifests/serviceaccount.yaml"
+    )
+
+    local failed=false
+    for manifest in "${core_manifests[@]}"; do
+        if [ -f "$manifest" ]; then
+            if ! kubectl delete -f "$manifest" &> /dev/null; then
+                print_warning "Could not remove $manifest (may not exist)"
+            fi
+        fi
+    done
+
+    print_success "Core resources removed"
+
+    # Check and remove test workloads if they exist
+    print_info "Checking for test workloads..."
+
+    local test_namespaces=("no-cpu-limit" "no-memory-limit" "no-limits-global" "all-limits")
+    local test_workloads_exist=false
+
+    for ns in "${test_namespaces[@]}"; do
+        if kubectl get namespace "$ns" &> /dev/null; then
+            test_workloads_exist=true
+            break
+        fi
+    done
+
+    if [ "$test_workloads_exist" = true ]; then
+        print_info "Removing test workloads..."
+
+        local test_manifests=(
+            "manifests/test-deployment-all-limits.yaml"
+            "manifests/test-deployment-no-limits.yaml"
+            "manifests/test-deployment-memory-only.yaml"
+            "manifests/test-deployment-cpu-only.yaml"
+        )
+
+        for manifest in "${test_manifests[@]}"; do
+            if [ -f "$manifest" ]; then
+                if ! kubectl delete -f "$manifest" &> /dev/null; then
+                    print_warning "Could not remove $manifest (may not exist)"
+                fi
+            fi
+        done
+
+        # Remove test namespaces explicitly
+        for ns in "${test_namespaces[@]}"; do
+            if kubectl get namespace "$ns" &> /dev/null; then
+                print_info "Removing namespace: $ns"
+                if ! kubectl delete namespace "$ns" --timeout=60s &> /dev/null; then
+                    print_warning "Could not remove namespace $ns (may take time to terminate)"
+                fi
+            fi
+        done
+
+        print_success "Test workloads and namespaces removed"
     else
-        print_warning "Some resources may not have been removed (this is okay if they don't exist)"
-        kubectl delete -f manifests/ 2>&1 | grep -v "NotFound" || true
+        print_info "No test workloads found (already clean)"
     fi
 }
 

@@ -11,6 +11,7 @@ NC='\033[0m' # No Color
 # Configuration
 IMAGE_NAME="k8s-pod-limits-checker:latest"
 NAMESPACE="default"
+DEPLOY_TEST_WORKLOADS=false
 
 # Print functions
 print_info() {
@@ -27,6 +28,35 @@ print_warning() {
 
 print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Parse command-line arguments
+parse_arguments() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --with-test-workloads)
+                DEPLOY_TEST_WORKLOADS=true
+                shift
+                ;;
+            --help|-h)
+                echo "Usage: $0 [OPTIONS]"
+                echo ""
+                echo "Options:"
+                echo "  --with-test-workloads    Deploy test workloads for testing the pod limits checker"
+                echo "  --help, -h               Show this help message"
+                echo ""
+                echo "Examples:"
+                echo "  $0                       Deploy only core resources (recommended)"
+                echo "  $0 --with-test-workloads Deploy core resources and test workloads"
+                exit 0
+                ;;
+            *)
+                print_error "Unknown option: $1"
+                echo "Run '$0 --help' for usage information"
+                exit 1
+                ;;
+        esac
+    done
 }
 
 # Check if required commands exist
@@ -159,13 +189,59 @@ deploy_manifests() {
         exit 1
     fi
 
-    if kubectl apply -f manifests/ &> /dev/null; then
-        print_success "Manifests deployed successfully"
+    # Deploy core resources (exclude test deployments)
+    print_info "Deploying core resources..."
+    local core_manifests=(
+        "manifests/serviceaccount.yaml"
+        "manifests/clusterrole.yaml"
+        "manifests/clusterrolebinding.yaml"
+        "manifests/configmap.yaml"
+        "manifests/cronjob.yaml"
+    )
+
+    for manifest in "${core_manifests[@]}"; do
+        if [ -f "$manifest" ]; then
+            if ! kubectl apply -f "$manifest" &> /dev/null; then
+                print_error "Failed to deploy $manifest"
+                print_info "Running deployment with verbose output..."
+                kubectl apply -f "$manifest"
+                exit 1
+            fi
+        else
+            print_warning "Manifest not found: $manifest"
+        fi
+    done
+
+    print_success "Core manifests deployed successfully"
+
+    # Deploy test workloads if requested
+    if [ "$DEPLOY_TEST_WORKLOADS" = true ]; then
+        print_info "Deploying test workloads..."
+
+        local test_manifests=(
+            "manifests/test-deployment-cpu-only.yaml"
+            "manifests/test-deployment-memory-only.yaml"
+            "manifests/test-deployment-no-limits.yaml"
+            "manifests/test-deployment-all-limits.yaml"
+        )
+
+        for manifest in "${test_manifests[@]}"; do
+            if [ -f "$manifest" ]; then
+                if ! kubectl apply -f "$manifest" &> /dev/null; then
+                    print_error "Failed to deploy $manifest"
+                    print_info "Running deployment with verbose output..."
+                    kubectl apply -f "$manifest"
+                    exit 1
+                fi
+            else
+                print_warning "Test manifest not found: $manifest"
+            fi
+        done
+
+        print_success "Test workloads deployed successfully"
+        print_info "Test namespaces created: no-cpu-limit, no-memory-limit, no-limits-global, all-limits"
     else
-        print_error "Failed to deploy manifests"
-        print_info "Running deployment with verbose output..."
-        kubectl apply -f manifests/
-        exit 1
+        print_info "Skipping test workloads (use --with-test-workloads to deploy them)"
     fi
 }
 
@@ -216,6 +292,17 @@ show_next_steps() {
     echo "  • Trigger manual run:        kubectl create job --from=cronjob/pod-monitor manual-run-1"
     echo "  • Edit configuration:        kubectl edit configmap pod-monitor-config"
     echo ""
+
+    if [ "$DEPLOY_TEST_WORKLOADS" = true ]; then
+        print_info "Test workload commands:"
+        echo "  • View all test pods:        kubectl get pods --all-namespaces -l test=pod-limits-checker"
+        echo "  • Check no-cpu-limit ns:     kubectl get pods -n no-cpu-limit"
+        echo "  • Check no-memory-limit ns:  kubectl get pods -n no-memory-limit"
+        echo "  • Check no-limits-global ns: kubectl get pods -n no-limits-global"
+        echo "  • Check all-limits ns:       kubectl get pods -n all-limits"
+        echo ""
+    fi
+
     print_info "The CronJob will run automatically according to its schedule."
     print_info "To see results immediately, you can trigger a manual run or wait for the next scheduled execution."
     echo ""
@@ -229,6 +316,7 @@ main() {
     echo "======================================"
     echo ""
 
+    parse_arguments "$@"
     check_prerequisites
     detect_cluster_type
     build_image
@@ -240,4 +328,4 @@ main() {
 }
 
 # Run main function
-main
+main "$@"
