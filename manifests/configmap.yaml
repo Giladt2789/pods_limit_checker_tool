@@ -5,5 +5,5 @@ metadata:
   namespace: default
 data:
   log-level: "INFO"
-  output-type: "json"
-  annotate: "false"  # Set to "true" to enable automatic pod annotations
+  output-type: "table"
+  annotate: "true"  # Set to "true" to enable automatic pod annotations

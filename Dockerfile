@@ -12,8 +12,7 @@ ENV PATH="/root/.local/bin:$PATH"
 WORKDIR /app
 
 # Copy project files
-COPY pyproject.toml uv.lock* ./
-COPY k8s_pod_limits_checker.py ./
+COPY pyproject.toml uv.lock* k8s_pod_limits_checker.py ./ 
 
 # Install dependencies using uv
 RUN uv sync --frozen

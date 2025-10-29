@@ -53,19 +53,31 @@ class KubernetesPodChecker:
 
     def connect(self) -> bool:
         """
-        Connect to the Kubernetes cluster using kubeconfig.
+        Connect to the Kubernetes cluster using in-cluster config or kubeconfig.
+        Tries in-cluster config first (for pods), then falls back to kubeconfig (for local dev).
 
         Returns:
             bool: True if connection successful, False otherwise
         """
         try:
-            config.load_kube_config()
+            # Try in-cluster config first (when running inside a pod)
+            config.load_incluster_config()
             self.v1_client = client.CoreV1Api()
-            self.logger.info("Successfully connected to Kubernetes cluster")
+            self.logger.info("Successfully connected to Kubernetes cluster using in-cluster config")
             return True
-        except config.ConfigException as e:
-            self.logger.error(f"Failed to load kubeconfig: {e}")
-            return False
+        except config.ConfigException:
+            # Fall back to kubeconfig (for local development)
+            try:
+                config.load_kube_config()
+                self.v1_client = client.CoreV1Api()
+                self.logger.info("Successfully connected to Kubernetes cluster using kubeconfig")
+                return True
+            except config.ConfigException as e:
+                self.logger.error(f"Failed to load kubeconfig: {e}")
+                return False
+            except Exception as e:
+                self.logger.error(f"Unexpected error loading kubeconfig: {e}")
+                return False
         except Exception as e:
             self.logger.error(f"Unexpected error connecting to cluster: {e}")
             return False

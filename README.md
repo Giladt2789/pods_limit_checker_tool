@@ -49,13 +49,18 @@ If you prefer manual control:
 
 ```bash
 # 1. Clone the repository
-git clone <repository-url>
-cd k8s-resources-limits-watcher
+git clone https://github.com/Giladt2789/pods_limit_checker_tool.git
+cd pods_limit_checker_tool
 
 # 2. Build the image
 docker build -t k8s-pod-limits-checker:latest .
 
-# 3. Run once to test
+# Important note: I understand that it's not preferable to work with latest tag (mostly around security reasons, bugs being tested and evaluated etc.), and it's better to work specific version. Yet, for the purpose of this task - i've decided to work with latest and explain the reason here.
+
+# 3. Prior to testing - create a dummy ./kube/config file (if not existing already):
+mkdir -p ~/.kube && touch ~/.kube/config
+
+# 4. Run once to test
 docker run --rm -v ~/.kube/config:/root/.kube/config:ro k8s-pod-limits-checker
 ```
 
@@ -63,8 +68,8 @@ docker run --rm -v ~/.kube/config:/root/.kube/config:ro k8s-pod-limits-checker
 
 ```bash
 # 1. Clone and build
-git clone <repository-url>
-cd k8s-resources-limits-watcher
+git clone https://github.com/Giladt2789/pods_limit_checker_tool.git
+cd pods_limit_checker_tool
 docker build -t k8s-pod-limits-checker:latest .
 
 # 2. Load image into cluster (Minikube example)
@@ -126,8 +131,8 @@ minikube addons enable metrics-server && minikube dashboard
 ### Step 2: Clone the Repository
 
 ```bash
-git clone <repository-url>
-cd k8s-resources-limits-watcher
+git clone https://github.com/Giladt2789/pods_limit_checker_tool.git
+cd pods_limit_checker_tool
 ```
 
 ### Step 3: Build the Docker Image
